@@ -1,0 +1,60 @@
+PHONY := __build
+__build:
+
+
+obj-y :=
+subdir-y :=
+
+#调用当前目录的Makefile，目的是取得里面的obj-y
+include Makefile
+
+# obj-y := a.o b.o c/ d/
+# $(filter %/, $(obj-y))   : c/ d/
+# __subdir-y  : c d
+# subdir-y    : c d
+__subdir-y	:= $(patsubst %/,%,$(filter %/, $(obj-y)))
+subdir-y	+= $(__subdir-y)
+
+PHONY += $(subdir-y)
+
+# c/built-in.o d/built-in.o
+subdir_objs := $(foreach f,$(subdir-y),$(f)/built-in.o)
+
+# a.o  b.o
+cur_objs := $(filter-out %/, $(obj-y))
+
+# .a.o.d  .b.o.d
+dep_files := $(foreach f,$(cur_objs),.$(f).d)
+
+#在Makefile规则中，通配符会被自动展开。但在变量的定义和函数引用时，通配符将失效。
+#这种情况下如果需要通配符有效，就需要使用函数“wildcard”，它的用法是：$(wildcard PATTERN...) 
+#在Makefile中，它被展开为已经存在的、使用空格分开的、匹配此模式的所有文件列表。
+#如果不存在任何符合此模式的文件，函数会忽略模式字符并返回空。
+#一般用法：我们可以使用“$(wildcard *.c)”来获取工作目录下的所有的.c文件列表。
+
+#当前工作目录有这些文件，就放到dep_files中
+dep_files := $(wildcard $(dep_files))
+
+ifneq ($(dep_files),)
+  include $(dep_files)
+endif
+
+
+__build : $(subdir-y) built-in.o
+
+$(subdir-y):
+	make -C $@ -f $(TOPDIR)/Makefile.build
+#Makefile中-C选项后跟目录，表示到该目录下执行(TOPDIR)的Makefile.build
+
+#将当前目录的.o文件+下面的子目录的built-in.o 联合再打包成一个新的built-in.o
+built-in.o : $(cur_objs) $(subdir_objs)
+	$(LD) -r -o $@ $^
+
+dep_file = .$@.d
+
+
+#编译选项里面加上-Wp,-MD,$(dep_file)，可以生成依赖文件
+%.o : %.c
+	$(CC) $(CFLAGS) -Wp,-MD,$(dep_file) -c -o $@ $<
+	
+.PHONY : $(PHONY)
